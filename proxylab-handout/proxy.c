@@ -11,6 +11,9 @@ static const char *accept_encoding_hdr = "Accept-Encoding: gzip, deflate\r\n";
 
 int main()
 {
+	if (1)
+		return 1;
+	
     printf("%s%s%s", user_agent_hdr, accept_hdr, accept_encoding_hdr);
 
     return 0;
