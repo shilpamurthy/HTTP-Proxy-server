@@ -13,8 +13,8 @@ static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; Linux x86_64;
 static const char *accept_hdr = "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\n";
 static const char *accept_encoding_hdr = "Accept-Encoding: gzip, deflate\r\n";
 
-#define SAFE_SSCANF(function)( if(function == EOF) {printf("Error in scanning input in %s, line %d\n", __FILE__, __LINE__); return;})
-#define SAFE_RIO(function) (if(function < 0) { printf("Error in RIO usage, in %s. line %d\n", __FILE__, __LINE__); return; })
+//#define SAFE_SSCANF(function)( if(function == EOF) {printf("Error in scanning input in %s, line %d\n", __FILE__, __LINE__); return;})
+//#define SAFE_RIO(function) (if(function < 0) { printf("Error in RIO usage, in %s. line %d\n", __FILE__, __LINE__); return; })
 
 void doit(int fd);
 int safe_scan(int n);
@@ -31,6 +31,7 @@ int main(int argc, char **argv)
 	struct sockaddr_in clientaddr;
 
 	port = atoi(argv[1]);
+
 
 	listenfd = Open_listenfd(port);
 
@@ -70,7 +71,7 @@ void doit(int fd)
 		printf("501 Not Implemented Proxy does not handle this method");
 		return;
     }
-    //printf("Does it reach here after Get?\n");
+    printf("Does it reach here after Get?\n");
 
     if (strstr(uri, "https://") || strstr(uri, "http://"))
     {
