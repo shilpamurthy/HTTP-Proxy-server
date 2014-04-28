@@ -36,10 +36,13 @@ int main(int argc, char **argv)
   struct sockaddr_in clientaddr;
   pthread_t thread;
 
+  //Ignore any sigpipe signals
+  Signal(SIGPIPE, SIG_IGN);
 
-  //Get the port number and listen to requests on thatport.
+  //get port number
   port = atoi(argv[1]);
 
+  //start listening on the specified port number
   listenfd = Open_listenfd(port);
 
 
@@ -47,9 +50,10 @@ int main(int argc, char **argv)
   {
     clientlen = sizeof(clientaddr);
     connfd = malloc(sizeof(int));
-    //accept the connection and open a new descriptor
+    //accept the connection 
     *connfd = Accept(listenfd,(SA *)&clientaddr,(unsigned int *)&clientlen);
 
+    //create a thread and run execute thread
     Pthread_create(&thread, NULL, executeT, connfd);
   }
     
@@ -59,11 +63,13 @@ int main(int argc, char **argv)
 
 void *executeT (void* p){
 
+  //This is mostly from the book
   int fd = *((int*)p);
   free(p);
 
   Pthread_detach(pthread_self());
 
+  //calls doit and closes the descriptor
   doit(fd);
   close(fd);
 
@@ -84,32 +90,33 @@ void doit(int fd)
   rio_t rio, rio1;
   int serverConn_fd;
 
-  //associate the file desrpitor
+  //associates rio with the descriptor
   Rio_readinitb(&rio, fd);
+  //reads and flushes the buf with the request
   Rio_readlineb(&rio, buf, MAXLINE);
   
-  //parse the buffer and into the method, uri and version
+  //parsing the initial request
   isnot_safe = safe_scan(sscanf(buf, "%s %s %s\r\n", method, uri, version));
 
   if (isnot_safe)
     return;
 
+  //cannot perform if it is not a Get method
     if (strcasecmp(method, "GET")) {
     printf("501 Not Implemented Proxy does not handle this method");
     return;
     }
     //printf("Does it reach here after Get?\n");
 
-    //parse the uri properly
+    //Parse the URL properly
     if (strstr(uri, "https://") || strstr(uri, "http://"))
     {
-        isnot_safe = safe_scan(sscanf(uri, /*"%[^'/']%s"*/ "http://%s",uri));
+        isnot_safe = safe_scan(sscanf(uri, "%[^'/']%s", temp,  uri));
 
         if (isnot_safe)
           return;
 
-        //get rid of the two slashes (//) after parsing.
-        //memmove(uri, uri+2, strlen(uri));
+        memmove(uri, uri+2, strlen(uri));
     }
 
     printf("%s\n", uri);
@@ -120,10 +127,12 @@ void doit(int fd)
           return;
     }
     else {
+      //if no path is specified then it is just "/".
     strcpy(path, "/");
     strcpy(host, uri);
     }
     //printf("HOST %s\n", host);
+    //Get the port if it is specified
     if ((port_pointer = strchr(host, ':')) != NULL){
     isnot_safe = safe_scan(sscanf(port_pointer, ":%d", &port));
 
@@ -136,17 +145,21 @@ void doit(int fd)
           return;
     }
 
+    //flush the requestbuf associated with the path and host
     sprintf(requestbuf, "GET %s HTTP/1.0\r\nHost: %s\r\n", path, host);
 
+    //open a server connection with the host and port
     serverConn_fd = Open_clientfd(host, port);
-    Rio_readinitb(&rio1, serverConn_fd);
 
+    //associate the file descriptor and write to it from requestBuf
+    Rio_readinitb(&rio1, serverConn_fd);
     isnot_safe = safe_rio(rio_writen(serverConn_fd, requestbuf, 
                 strlen(requestbuf)));
 
     if (isnot_safe)
         return;
 
+    //Send in all necessaru headers
     strcpy(requestbuf, user_agent_hdr);
     isnot_safe = safe_rio(rio_writen(serverConn_fd, requestbuf, strlen(requestbuf)));
 
@@ -172,7 +185,7 @@ void doit(int fd)
         return;
 
 
-    //Get requests by clients that are not already passed and pass them through
+    //Get additional requests by clients that are not already passed and pass them through without changing the,
     while((len = rio_readlineb(&rio, requestbuf, MAXBUF)) && 
           strcmp(requestbuf, "\r\n"))
     {
@@ -195,6 +208,7 @@ void doit(int fd)
     }
 
 
+  //Finally write to the client desciptor  what the server responds
   while((len = rio_readnb(&rio1, data, len)) != 0){
     dataLen += len;
 
