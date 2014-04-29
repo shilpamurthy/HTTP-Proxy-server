@@ -14,10 +14,8 @@ static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; Linux x86_64;
 static const char *accept_hdr = "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\n";
 static const char *accept_encoding_hdr = "Accept-Encoding: gzip, deflate\r\n";
 
-//pthread_rwlock_t lock;
-//pthread_rwlock_t host_lock;
-
-//struct 
+pthread_rwlock_t lock;
+//extern pthread_rwlock_t host_lock;
 
 void doit(int fd);
 int safe_scan(int n);
@@ -26,36 +24,39 @@ void *executeT (void *p);
 
 int main(int argc, char **argv)
 {
-  if (argc != 2)
-  {
-    fprintf(stderr, "usage: %s <port>\n", argv[0]);
-    exit(1);
-  }
-  int listenfd, clientlen, port;
-  int *connfd;
-  struct sockaddr_in clientaddr;
-  pthread_t thread;
+	if (argc != 2)
+	{
+		fprintf(stderr, "usage: %s <port>\n", argv[0]);
+		exit(1);
+	}
+	int listenfd, clientlen, port;
+	int *connfd;
+	struct sockaddr_in clientaddr;
+	pthread_t tid;
 
-  //Ignore any sigpipe signals
-  Signal(SIGPIPE, SIG_IGN);
+  //pthread_rwlock_init(&host_lock, NULL);
+  pthread_rwlock_init(&lock, NULL);
 
-  //get port number
-  port = atoi(argv[1]);
+	//Ignore any sigpipe signals
+	Signal(SIGPIPE, SIG_IGN);
 
-  //start listening on the specified port number
-  listenfd = Open_listenfd(port);
+	//get port number
+	port = atoi(argv[1]);
+
+	//start listening on the specified port number
+	listenfd = Open_listenfd(port);
 
 
-  while (1)
-  {
-    clientlen = sizeof(clientaddr);
-    connfd = malloc(sizeof(int));
-    //accept the connection 
-    *connfd = Accept(listenfd,(SA *)&clientaddr,(unsigned int *)&clientlen);
+	while (1)
+	{
+		clientlen = sizeof(clientaddr);
+		connfd = malloc(sizeof(int));
+		//accept the connection 
+		*connfd = Accept(listenfd,(SA *)&clientaddr,(unsigned int *)&clientlen);
 
-    //create a thread and run execute thread
-    Pthread_create(&thread, NULL, executeT, connfd);
-  }
+		//create a thread and run execute thread
+		Pthread_create(&tid, NULL, executeT, connfd);
+	}
     
 
     return 0;
@@ -63,7 +64,7 @@ int main(int argc, char **argv)
 
 void *executeT (void* p){
 
-  //This is mostly from the book
+	//This is mostly from the book
   int fd = *((int*)p);
   free(p);
 
@@ -78,33 +79,36 @@ void *executeT (void* p){
 
 void doit(int fd)
 {
-  int isnot_safe;
-  char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE], 
-  temp[MAXLINE], requestbuf[MAXLINE], host[MAXLINE], headers[MAXLINE],
-  path[MAXLINE];
-  char *data = malloc(MAX_OBJECT_SIZE*sizeof(char));
-  size_t dataLen = 0;
-  char *dataBuffer = malloc(MAX_OBJECT_SIZE*sizeof(char));
-  char* port_pointer;
-  int port = 80, len;
-  rio_t rio, rio1;
-  int serverConn_fd;
+	int isnot_safe;
+	char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE], 
+	temp[MAXLINE], requestbuf[MAXLINE], host[MAXLINE], headers[MAXLINE],
+	path[MAXLINE];
+	char *data = malloc(MAX_OBJECT_SIZE*sizeof(char));
+	size_t dataLen = 0;
+	char *dataBuffer = malloc(MAX_OBJECT_SIZE*sizeof(char));
+  char *temporaryData = dataBuffer;
+	char* port_pointer;
+	int port = 80, len;
+	rio_t rio, rio1;
+	int serverConn_fd;
+  cache_node *fileObj = NULL;
+  cache_node *addFile = malloc(sizeof(cache_node));
 
-  //associates rio with the descriptor
-  Rio_readinitb(&rio, fd);
-  //reads and flushes the buf with the request
-  Rio_readlineb(&rio, buf, MAXLINE);
-  
-  //parsing the initial request
-  isnot_safe = safe_scan(sscanf(buf, "%s %s %s\r\n", method, uri, version));
+	//associates rio with the descriptor
+	Rio_readinitb(&rio, fd);
+	//reads and flushes the buf with the request
+	Rio_readlineb(&rio, buf, MAXLINE);
+	
+	//parsing the initial request
+	isnot_safe = safe_scan(sscanf(buf, "%s %s %s\r\n", method, uri, version));
 
-  if (isnot_safe)
-    return;
+	if (isnot_safe)
+		return;
 
-  //cannot perform if it is not a Get method
+	//cannot perform if it is not a Get method
     if (strcasecmp(method, "GET")) {
-    printf("501 Not Implemented Proxy does not handle this method");
-    return;
+		printf("501 Not Implemented Proxy does not handle this method");
+		return;
     }
     //printf("Does it reach here after Get?\n");
 
@@ -114,35 +118,41 @@ void doit(int fd)
         isnot_safe = safe_scan(sscanf(uri, "%[^'/']%s", temp,  uri));
 
         if (isnot_safe)
-          return;
+        	return;
 
         memmove(uri, uri+2, strlen(uri));
     }
 
     printf("%s\n", uri);
     if(strchr(uri, '/') != NULL) {
-    isnot_safe = safe_scan(sscanf(uri, "%[^'/']%s", host, path));
+		isnot_safe = safe_scan(sscanf(uri, "%[^'/']%s", host, path));
 
         if (isnot_safe)
-          return;
+        	return;
     }
     else {
-      //if no path is specified then it is just "/".
-    strcpy(path, "/");
-    strcpy(host, uri);
+    	//if no path is specified then it is just "/".
+		strcpy(path, "/");
+		strcpy(host, uri);
     }
     //printf("HOST %s\n", host);
     //Get the port if it is specified
     if ((port_pointer = strchr(host, ':')) != NULL){
-    isnot_safe = safe_scan(sscanf(port_pointer, ":%d", &port));
+		isnot_safe = safe_scan(sscanf(port_pointer, ":%d", &port));
 
         if (isnot_safe)
-          return;
+        	return;
 
-    isnot_safe = safe_scan(sscanf(host, "%[^0-9:]", host));
+		isnot_safe = safe_scan(sscanf(host, "%[^0-9:]", host));
 
         if (isnot_safe)
-          return;
+        	return;
+    }
+
+    if ((fileObj = find(uri)) != NULL)
+    {
+      rio_writen(fd, fileObj->file, fileObj->size);
+      return;
     }
 
     //flush the requestbuf associated with the path and host
@@ -154,32 +164,32 @@ void doit(int fd)
     //associate the file descriptor and write to it from requestBuf
     Rio_readinitb(&rio1, serverConn_fd);
     isnot_safe = safe_rio(rio_writen(serverConn_fd, requestbuf, 
-                strlen(requestbuf)));
+    						strlen(requestbuf)));
 
     if (isnot_safe)
         return;
 
     //Send in all necessaru headers
-    strcpy(requestbuf, user_agent_hdr);
-    isnot_safe = safe_rio(rio_writen(serverConn_fd, requestbuf, strlen(requestbuf)));
+  	strcpy(requestbuf, user_agent_hdr);
+  	isnot_safe = safe_rio(rio_writen(serverConn_fd, requestbuf, strlen(requestbuf)));
 
     if (isnot_safe)
         return;
 
-    strcpy(requestbuf, accept_hdr);
-  isnot_safe = safe_rio(rio_writen(serverConn_fd, requestbuf, strlen(requestbuf)));
+  	strcpy(requestbuf, accept_hdr);
+ 	isnot_safe = safe_rio(rio_writen(serverConn_fd, requestbuf, strlen(requestbuf)));
 
     if (isnot_safe)
         return;
 
-    strcpy(requestbuf, accept_encoding_hdr);
-    isnot_safe = safe_rio(rio_writen(serverConn_fd, requestbuf, strlen(requestbuf)));
+  	strcpy(requestbuf, accept_encoding_hdr);
+  	isnot_safe = safe_rio(rio_writen(serverConn_fd, requestbuf, strlen(requestbuf)));
 
     if (isnot_safe)
         return;
 
-    isnot_safe = safe_rio(rio_writen(serverConn_fd,
-      "Proxy-Connection: close\r\nConnection:\tclose\r\n\r\n", 52));
+  	isnot_safe = safe_rio(rio_writen(serverConn_fd,
+  		"Proxy-Connection: close\r\nConnection:\tclose\r\n\r\n", 52));
 
     if (isnot_safe)
         return;
@@ -187,25 +197,25 @@ void doit(int fd)
 
     //Get additional requests by clients that are not already passed and pass them through without changing the,
     while((len = rio_readlineb(&rio, requestbuf, MAXBUF)) && 
-          strcmp(requestbuf, "\r\n"))
+    			strcmp(requestbuf, "\r\n"))
     {
-      isnot_safe = safe_scan(sscanf(requestbuf, "%s ",headers));
+	    isnot_safe = safe_scan(sscanf(requestbuf, "%s ",headers));
 
         if (isnot_safe)
-          return;
+        	return;
 
-      if(!strstr(headers, "Host:") && !strstr(headers, "Connection:") &&
-         !strstr(headers, "User-Agent:") && !strstr(headers,"Accept-Encoding:")
-         && !strstr(headers,"Accept:") && !strstr(headers,"Proxy-Connection:"))
+	    if(!strstr(headers, "Host:") && !strstr(headers, "Connection:") &&
+	       !strstr(headers, "User-Agent:") && !strstr(headers,"Accept-Encoding:")
+	       && !strstr(headers,"Accept:") && !strstr(headers,"Proxy-Connection:"))
 
-      {
+	    {
 
-          isnot_safe = safe_rio(rio_writen(serverConn_fd, requestbuf, len));
-      
-          if (isnot_safe)
-            return;     
-      }
-    }
+	        isnot_safe = safe_rio(rio_writen(serverConn_fd, requestbuf, len));
+			
+        	if (isnot_safe)
+        		return;	   	
+    	}
+  	}
 
 
   //Finally write to the client desciptor  what the server responds
@@ -213,13 +223,23 @@ void doit(int fd)
     dataLen += len;
 
     if (MAX_OBJECT_SIZE > dataLen){
-      memcpy(dataBuffer,data,len);
-      dataBuffer += len;
+      memcpy(temporaryData,data,len);
+      temporaryData += len;
     }
     rio_writen(fd, data, len);
   }
 
-  free(data);
+  if(dataLen <= MAX_OBJECT_SIZE)
+  {
+    pthread_rwlock_wrlock(&lock);
+    addFile->url = uri;
+    addFile->file = dataBuffer;
+    addFile->size = dataLen;
+    addToFront(addFile);
+    pthread_rwlock_unlock(&lock);
+  }
+
+  //free(data);
 
   return;
 
@@ -227,22 +247,23 @@ void doit(int fd)
 
 int safe_scan(int n)
 {
-  if (n == EOF)
-  {
-    printf("Error in scanning input in %s, line %d\n", __FILE__, __LINE__);
-    return 1;
-  }
+	if (n == EOF)
+	{
+		printf("Error in scanning input in %s, line %d\n", __FILE__, __LINE__);
+		return 1;
+	}
 
-  return 0;
+	return 0;
 }
 
 int safe_rio(int n)
 {
-  if (n < 0)
-  {
-    printf("Error in RIO usage, in %s. line %d\n", __FILE__, __LINE__);
-    return 1;
-  }
+	if (n < 0)
+	{
+		printf("Error in RIO usage, in %s. line %d\n", __FILE__, __LINE__);
+		return 1;
+	}
 
-  return 0;
+	return 0;
 }
+
